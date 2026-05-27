@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BREADS } from './data/seeds';
-import type { Customer, RetailProduct, ShiftEntry, ShiftSlot } from './types';
+import { BREADS, DEFAULT_WHOLESALE_PRICES } from './data/seeds';
+import type {
+  AdjustmentItem,
+  BreadId,
+  Customer,
+  RetailProduct,
+  ShiftEntry,
+  ShiftSlot,
+} from './types';
 import {
   breadKhongRevenue,
   breadThitRevenue,
+  cashSummary,
   currentSlot,
   deliveryRevenue,
   emptyEntry,
@@ -13,9 +21,9 @@ import {
   shiftLabel,
   sortCustomers,
   todayISO,
-  totalRevenue,
 } from './lib/pricing';
 import {
+  deleteShift,
   loadCustomers,
   loadProducts,
   loadShift,
@@ -30,6 +38,13 @@ import { ProductionSection } from './components/ProductionSection';
 import { BreadSalesSection } from './components/BreadSalesSection';
 import { RetailSection } from './components/RetailSection';
 import { DeliverySection } from './components/DeliverySection';
+import { AdjustmentsSection } from './components/AdjustmentsSection';
+import { CashReconCard } from './components/CashReconCard';
+import { ConfirmModal, type ConfirmOptions } from './components/ConfirmModal';
+
+interface PendingConfirm extends ConfirmOptions {
+  onConfirm: () => void;
+}
 
 export default function App() {
   const [date, setDate] = useState<string>(todayISO());
@@ -42,6 +57,7 @@ export default function App() {
     () => loadShift(todayISO(), currentSlot()) ?? emptyEntry(todayISO(), currentSlot()),
   );
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
 
   useEffect(() => {
     const loaded = loadShift(date, slot);
@@ -53,24 +69,24 @@ export default function App() {
   const banhKhongSub = useMemo(() => breadKhongRevenue(entry, BREADS), [entry]);
   const banhThitSub = useMemo(() => breadThitRevenue(entry, BREADS), [entry]);
   const retailSub = useMemo(() => retailRevenue(entry, products), [entry, products]);
-  const deliverySub = useMemo(
-    () => deliveryRevenue(entry, BREADS, customers),
-    [entry, customers],
-  );
-  const total = useMemo(
-    () => totalRevenue(entry, BREADS, products, customers),
+  const deliverySub = useMemo(() => deliveryRevenue(entry, customers), [entry, customers]);
+  const cash = useMemo(
+    () => cashSummary(entry, BREADS, products, customers),
     [entry, products, customers],
   );
 
-  const updateProduction = (breadId: string, qty: number) =>
+  const ask = (opts: ConfirmOptions, onConfirm: () => void) =>
+    setPending({ ...opts, onConfirm });
+
+  const updateProduction = (breadId: BreadId, qty: number) =>
     setEntry((p) => ({ ...p, production: { ...p.production, [breadId]: qty } }));
-  const updateBanhKhong = (breadId: string, qty: number) =>
+  const updateBanhKhong = (breadId: BreadId, qty: number) =>
     setEntry((p) => ({ ...p, banhKhong: { ...p.banhKhong, [breadId]: qty } }));
-  const updateBanhThit = (breadId: string, qty: number) =>
+  const updateBanhThit = (breadId: BreadId, qty: number) =>
     setEntry((p) => ({ ...p, banhThit: { ...p.banhThit, [breadId]: qty } }));
   const updateRetail = (productId: string, qty: number) =>
     setEntry((p) => ({ ...p, retail: { ...p.retail, [productId]: qty } }));
-  const updateDelivery = (customerId: string, breadId: string, qty: number) =>
+  const updateDelivery = (customerId: string, breadId: BreadId, qty: number) =>
     setEntry((p) => ({
       ...p,
       delivery: {
@@ -85,30 +101,80 @@ export default function App() {
     saveProducts(next);
   };
   const deleteProduct = (productId: string) => {
-    const next = products.filter((p) => p.id !== productId);
-    setProducts(next);
-    saveProducts(next);
-    setEntry((p) => {
-      if (!(productId in p.retail)) return p;
-      const { [productId]: _removed, ...rest } = p.retail;
-      return { ...p, retail: rest };
-    });
+    const product = products.find((p) => p.id === productId);
+    if (!product) return;
+    ask(
+      {
+        title: 'Xóa sản phẩm',
+        message: `Xóa "${product.name}" khỏi danh sách sản phẩm lẻ?`,
+        confirmLabel: 'Xóa',
+        danger: true,
+      },
+      () => {
+        const next = products.filter((p) => p.id !== productId);
+        setProducts(next);
+        saveProducts(next);
+        setEntry((p) => {
+          if (!(productId in p.retail)) return p;
+          const { [productId]: _removed, ...rest } = p.retail;
+          return { ...p, retail: rest };
+        });
+      },
+    );
   };
 
   const addCustomer = (name: string) => {
-    const next = sortCustomers([...customers, { id: newId('c'), name }]);
+    const next = sortCustomers([
+      ...customers,
+      { id: newId('c'), name, prices: { ...DEFAULT_WHOLESALE_PRICES } },
+    ]);
     setCustomers(next);
     saveCustomers(next);
   };
   const deleteCustomer = (customerId: string) => {
-    const next = customers.filter((c) => c.id !== customerId);
+    const customer = customers.find((c) => c.id === customerId);
+    if (!customer) return;
+    ask(
+      {
+        title: 'Xóa bạn hàng',
+        message: `Xóa "${customer.name}" khỏi danh sách bạn hàng?`,
+        confirmLabel: 'Xóa',
+        danger: true,
+      },
+      () => {
+        const next = customers.filter((c) => c.id !== customerId);
+        setCustomers(next);
+        saveCustomers(next);
+        setEntry((p) => {
+          if (!(customerId in p.delivery)) return p;
+          const { [customerId]: _removed, ...rest } = p.delivery;
+          return { ...p, delivery: rest };
+        });
+      },
+    );
+  };
+  const updateCustomerPrice = (customerId: string, breadId: BreadId, price: number) => {
+    const next = customers.map((c) =>
+      c.id === customerId ? { ...c, prices: { ...c.prices, [breadId]: price } } : c,
+    );
     setCustomers(next);
     saveCustomers(next);
-    setEntry((p) => {
-      if (!(customerId in p.delivery)) return p;
-      const { [customerId]: _removed, ...rest } = p.delivery;
-      return { ...p, delivery: rest };
-    });
+  };
+
+  const addAdjustment = (
+    field: 'adjustmentsPlus' | 'adjustmentsMinus',
+    name: string,
+    qty: number,
+    price: number,
+  ) => {
+    const item: AdjustmentItem = { id: newId('a'), name, qty, price };
+    setEntry((p) => ({ ...p, [field]: [...p[field], item] }));
+  };
+  const removeAdjustment = (
+    field: 'adjustmentsPlus' | 'adjustmentsMinus',
+    id: string,
+  ) => {
+    setEntry((p) => ({ ...p, [field]: p[field].filter((it) => it.id !== id) }));
   };
 
   const handleSave = () => {
@@ -116,22 +182,42 @@ export default function App() {
     setSavedAt(Date.now());
   };
 
-  const handleReset = () => {
-    if (!confirm(`Xóa hết số liệu ca ${shiftLabel(slot)} ngày ${date}?`)) return;
-    setEntry(emptyEntry(date, slot));
-  };
+  const handleResetShift = () =>
+    ask(
+      {
+        title: 'Reset ca hiện tại',
+        message: `Xóa hết số liệu ca ${shiftLabel(slot)} ngày ${date} về mặc định?\nDanh sách sản phẩm và bạn hàng giữ nguyên.`,
+        confirmLabel: 'Reset',
+        danger: true,
+      },
+      () => {
+        deleteShift(date, slot);
+        setEntry(emptyEntry(date, slot));
+        setSavedAt(null);
+      },
+    );
 
   return (
     <div className="mx-auto flex min-h-full max-w-2xl flex-col pb-32">
       <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 px-4 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-lg font-bold text-stone-900">🥖 Tính tiền lò bánh mì</h1>
-          <ShiftPicker
-            date={date}
-            slot={slot}
-            onDateChange={setDate}
-            onSlotChange={setSlot}
-          />
+          <div className="flex items-center gap-2">
+            <ShiftPicker
+              date={date}
+              slot={slot}
+              onDateChange={setDate}
+              onSlotChange={setSlot}
+            />
+            <button
+              type="button"
+              onClick={handleResetShift}
+              className="rounded-lg bg-stone-100 px-3 py-1 text-sm font-semibold text-stone-700 active:bg-stone-200"
+              title="Reset ca hiện tại"
+            >
+              ↺ Reset
+            </button>
+          </div>
         </div>
       </header>
 
@@ -181,6 +267,33 @@ export default function App() {
           onCustomerQtyChange={updateDelivery}
           onAddCustomer={addCustomer}
           onDeleteCustomer={deleteCustomer}
+          onCustomerPriceChange={updateCustomerPrice}
+        />
+
+        <AdjustmentsSection
+          title="Cộng thêm"
+          emoji="➕"
+          variant="plus"
+          items={entry.adjustmentsPlus}
+          onAdd={(name, qty, price) => addAdjustment('adjustmentsPlus', name, qty, price)}
+          onRemove={(id) => removeAdjustment('adjustmentsPlus', id)}
+        />
+
+        <AdjustmentsSection
+          title="Trừ ra"
+          emoji="➖"
+          variant="minus"
+          items={entry.adjustmentsMinus}
+          onAdd={(name, qty, price) => addAdjustment('adjustmentsMinus', name, qty, price)}
+          onRemove={(id) => removeAdjustment('adjustmentsMinus', id)}
+        />
+
+        <CashReconCard
+          summary={cash}
+          onChangeIn={(n) => setEntry((p) => ({ ...p, changeIn: n }))}
+          onChangeOut={(n) => setEntry((p) => ({ ...p, changeOut: n }))}
+          onBankTransfer={(n) => setEntry((p) => ({ ...p, bankTransfer: n }))}
+          onCashTaken={(n) => setEntry((p) => ({ ...p, cashTaken: n }))}
         />
 
         <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-stone-200">
@@ -194,13 +307,6 @@ export default function App() {
             className="w-full rounded-lg border border-stone-300 bg-white p-3 text-base focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
             rows={2}
           />
-          <button
-            type="button"
-            onClick={handleReset}
-            className="mt-3 text-sm font-medium text-stone-500 underline-offset-2 hover:underline"
-          >
-            Xóa số liệu ca này
-          </button>
         </section>
       </main>
 
@@ -208,10 +314,10 @@ export default function App() {
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
           <div>
             <div className="text-xs font-medium uppercase tracking-wide text-stone-500">
-              Tổng ca {shiftLabel(slot)}
+              Tổng dự kiến ca {shiftLabel(slot)}
             </div>
             <div className="text-2xl font-bold tabular-nums text-brand-700">
-              {formatVND(total)}
+              {formatVND(cash.expected)}
             </div>
             {savedAt && (
               <div className="text-[11px] text-stone-400">
@@ -228,6 +334,20 @@ export default function App() {
           </button>
         </div>
       </footer>
+
+      <ConfirmModal
+        open={pending !== null}
+        title={pending?.title ?? ''}
+        message={pending?.message ?? ''}
+        confirmLabel={pending?.confirmLabel}
+        cancelLabel={pending?.cancelLabel}
+        danger={pending?.danger}
+        onCancel={() => setPending(null)}
+        onConfirm={() => {
+          pending?.onConfirm();
+          setPending(null);
+        }}
+      />
     </div>
   );
 }

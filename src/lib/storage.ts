@@ -1,6 +1,6 @@
 import type { Customer, RetailProduct, ShiftEntry, ShiftSlot } from '../types';
 import { shiftKey } from './pricing';
-import { DEFAULT_RETAIL_PRODUCTS } from '../data/seeds';
+import { DEFAULT_RETAIL_PRODUCTS, DEFAULT_WHOLESALE_PRICES } from '../data/seeds';
 
 const SHIFTS_KEY = 'tinhtien:shifts:v2';
 const PRODUCTS_KEY = 'tinhtien:products:v2';
@@ -59,9 +59,23 @@ export function saveProducts(products: RetailProduct[]) {
 // Customers -------------------------------------------------------
 
 export function loadCustomers(): Customer[] {
-  return readJSON<Customer[]>(CUSTOMERS_KEY, []);
+  const raw = readJSON<Array<Partial<Customer> & { id: string; name: string }>>(
+    CUSTOMERS_KEY,
+    [],
+  );
+  return raw.map((c) => ({
+    id: c.id,
+    name: c.name,
+    prices: c.prices ?? { ...DEFAULT_WHOLESALE_PRICES },
+  }));
 }
 
 export function saveCustomers(customers: Customer[]) {
   writeJSON(CUSTOMERS_KEY, customers);
+}
+
+export function deleteShift(date: string, slot: ShiftSlot) {
+  const store = readJSON<ShiftStore>(SHIFTS_KEY, {});
+  delete store[shiftKey(date, slot)];
+  writeJSON(SHIFTS_KEY, store);
 }

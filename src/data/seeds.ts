@@ -1,4 +1,10 @@
-import type { BreadDef, RetailProduct } from '../types';
+import type { BreadDef, BreadPriceMap, RetailProduct } from '../types';
+
+export const DEFAULT_WHOLESALE_PRICES: BreadPriceMap = {
+  'banh-nho': 3000,
+  'banh-trung': 6000,
+  'banh-lon': 12000,
+};
 
 export const BREADS: BreadDef[] = [
   {

@@ -62,11 +62,7 @@ export function RetailSection({
                   </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (confirm(`Xóa "${p.name}" khỏi danh sách?`)) {
-                        onDeleteProduct(p.id);
-                      }
-                    }}
+                    onClick={() => onDeleteProduct(p.id)}
                     className="text-xs text-stone-400 hover:text-rose-600"
                     aria-label="Xóa sản phẩm"
                   >

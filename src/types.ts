@@ -16,12 +16,22 @@ export interface RetailProduct {
   price: number;
 }
 
+export type BreadPriceMap = Record<BreadId, number>;
+
 export interface Customer {
   id: string;
   name: string;
+  prices: BreadPriceMap;
 }
 
 export type BreadCount = Partial<Record<BreadId, number>>;
+
+export interface AdjustmentItem {
+  id: string;
+  name: string;
+  qty: number;
+  price: number;
+}
 
 export interface ShiftEntry {
   date: string;
@@ -31,6 +41,12 @@ export interface ShiftEntry {
   banhThit: BreadCount;
   retail: Record<string, number>;
   delivery: Record<string, BreadCount>;
+  adjustmentsPlus: AdjustmentItem[];
+  adjustmentsMinus: AdjustmentItem[];
+  changeIn: number;
+  changeOut: number;
+  bankTransfer: number;
+  cashTaken: number;
   note: string;
   updatedAt: number;
 }

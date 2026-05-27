@@ -1,4 +1,4 @@
-import type { BreadCount, BreadDef } from '../types';
+import type { BreadCount, BreadDef, BreadId } from '../types';
 import { formatVND } from '../lib/pricing';
 import { BreadRow } from './BreadRow';
 
@@ -9,7 +9,7 @@ interface Props {
   counts: BreadCount;
   priceFor: (b: BreadDef) => number;
   subtotal: number;
-  onChange: (breadId: string, qty: number) => void;
+  onChange: (breadId: BreadId, qty: number) => void;
 }
 
 export function BreadSalesSection({

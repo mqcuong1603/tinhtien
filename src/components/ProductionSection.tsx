@@ -1,10 +1,10 @@
-import type { BreadCount, BreadDef } from '../types';
+import type { BreadCount, BreadDef, BreadId } from '../types';
 import { BreadRow } from './BreadRow';
 
 interface Props {
   breads: BreadDef[];
   production: BreadCount;
-  onChange: (breadId: string, qty: number) => void;
+  onChange: (breadId: BreadId, qty: number) => void;
 }
 
 export function ProductionSection({ breads, production, onChange }: Props) {

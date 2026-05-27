@@ -1,7 +1,9 @@
 import type {
+  AdjustmentItem,
   BreadCount,
   BreadDef,
   BreadId,
+  BreadPriceMap,
   BreadReconRow,
   Customer,
   RetailProduct,
@@ -56,24 +58,22 @@ export function retailRevenue(entry: ShiftEntry, products: RetailProduct[]): num
   );
 }
 
-export function deliveryRevenue(
-  entry: ShiftEntry,
-  breads: BreadDef[],
-  customers: Customer[],
-): number {
+export function customerSubtotal(counts: BreadCount, prices: BreadPriceMap): number {
+  return (
+    (counts['banh-nho'] ?? 0) * prices['banh-nho'] +
+    (counts['banh-trung'] ?? 0) * prices['banh-trung'] +
+    (counts['banh-lon'] ?? 0) * prices['banh-lon']
+  );
+}
+
+export function deliveryRevenue(entry: ShiftEntry, customers: Customer[]): number {
   let total = 0;
   for (const c of customers) {
     const counts = entry.delivery[c.id];
     if (!counts) continue;
-    for (const b of breads) {
-      total += (counts[b.id] ?? 0) * b.priceWholesale;
-    }
+    total += customerSubtotal(counts, c.prices);
   }
   return total;
-}
-
-export function customerSubtotal(counts: BreadCount, breads: BreadDef[]): number {
-  return breads.reduce((sum, b) => sum + (counts[b.id] ?? 0) * b.priceWholesale, 0);
 }
 
 export function deliveredOf(
@@ -105,7 +105,15 @@ export function reconciliation(
   });
 }
 
-export function totalRevenue(
+export function adjustmentAmount(item: AdjustmentItem): number {
+  return item.qty * item.price;
+}
+
+export function adjustmentsTotal(items: AdjustmentItem[]): number {
+  return items.reduce((sum, it) => sum + adjustmentAmount(it), 0);
+}
+
+export function totalBreadRevenue(
   entry: ShiftEntry,
   breads: BreadDef[],
   products: RetailProduct[],
@@ -115,8 +123,46 @@ export function totalRevenue(
     breadKhongRevenue(entry, breads) +
     breadThitRevenue(entry, breads) +
     retailRevenue(entry, products) +
-    deliveryRevenue(entry, breads, customers)
+    deliveryRevenue(entry, customers)
   );
+}
+
+export interface CashSummary {
+  bread: number;
+  plus: number;
+  minus: number;
+  changeIn: number;
+  changeOut: number;
+  bankTransfer: number;
+  cashTaken: number;
+  expected: number;
+  actual: number;
+  variance: number;
+}
+
+export function cashSummary(
+  entry: ShiftEntry,
+  breads: BreadDef[],
+  products: RetailProduct[],
+  customers: Customer[],
+): CashSummary {
+  const bread = totalBreadRevenue(entry, breads, products, customers);
+  const plus = adjustmentsTotal(entry.adjustmentsPlus);
+  const minus = adjustmentsTotal(entry.adjustmentsMinus);
+  const expected = bread + entry.changeIn + plus - minus;
+  const actual = entry.cashTaken + entry.changeOut + entry.bankTransfer;
+  return {
+    bread,
+    plus,
+    minus,
+    changeIn: entry.changeIn,
+    changeOut: entry.changeOut,
+    bankTransfer: entry.bankTransfer,
+    cashTaken: entry.cashTaken,
+    expected,
+    actual,
+    variance: expected - actual,
+  };
 }
 
 export function emptyEntry(date: string, slot: ShiftSlot): ShiftEntry {
@@ -128,6 +174,12 @@ export function emptyEntry(date: string, slot: ShiftSlot): ShiftEntry {
     banhThit: {},
     retail: {},
     delivery: {},
+    adjustmentsPlus: [],
+    adjustmentsMinus: [],
+    changeIn: 0,
+    changeOut: 0,
+    bankTransfer: 0,
+    cashTaken: 0,
     note: '',
     updatedAt: Date.now(),
   };
