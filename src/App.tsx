@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { BREADS, DEFAULT_WHOLESALE_PRICES } from './data/seeds';
 import type {
   AdjustmentItem,
@@ -31,6 +32,14 @@ import {
   saveProducts,
   saveShift,
 } from './lib/storage';
+import {
+  fetchConfig,
+  fetchShift,
+  pushConfig,
+  pushShift,
+  removeShift,
+} from './lib/sync';
+import { supabase } from './lib/supabase';
 import { newId } from './lib/id';
 import { ShiftPicker } from './components/ShiftPicker';
 import { ReconciliationCard } from './components/ReconciliationCard';
@@ -41,12 +50,43 @@ import { DeliverySection } from './components/DeliverySection';
 import { AdjustmentsSection } from './components/AdjustmentsSection';
 import { CashReconCard } from './components/CashReconCard';
 import { ConfirmModal, type ConfirmOptions } from './components/ConfirmModal';
+import { LoginScreen } from './components/LoginScreen';
 
 interface PendingConfirm extends ConfirmOptions {
   onConfirm: () => void;
 }
 
+type SyncStatus = 'idle' | 'syncing' | 'error';
+
 export default function App() {
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+
+  useEffect(() => {
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (mounted) setSession(data.session);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_, s) => {
+      if (mounted) setSession(s);
+    });
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  if (session === undefined) {
+    return (
+      <div className="flex min-h-full items-center justify-center text-stone-500">
+        Đang tải...
+      </div>
+    );
+  }
+  if (!session) return <LoginScreen />;
+  return <MainApp key={session.user.id} />;
+}
+
+function MainApp() {
   const [date, setDate] = useState<string>(todayISO());
   const [slot, setSlot] = useState<ShiftSlot>(currentSlot());
   const [products, setProducts] = useState<RetailProduct[]>(() => loadProducts());
@@ -58,11 +98,78 @@ export default function App() {
   );
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [pending, setPending] = useState<PendingConfirm | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
 
+  // Track latest state inside config sync calls without re-creating callbacks.
+  const productsRef = useRef(products);
+  const customersRef = useRef(customers);
+  productsRef.current = products;
+  customersRef.current = customers;
+
+  // Pull config from cloud once on mount; seed cloud with local data if cloud is empty.
   useEffect(() => {
-    const loaded = loadShift(date, slot);
-    setEntry(loaded ?? emptyEntry(date, slot));
-    setSavedAt(loaded?.updatedAt ?? null);
+    let cancelled = false;
+    (async () => {
+      setSyncStatus('syncing');
+      try {
+        const cloud = await fetchConfig();
+        if (cancelled) return;
+        if (cloud) {
+          setProducts(cloud.products);
+          setCustomers(sortCustomers(cloud.customers));
+          saveProducts(cloud.products);
+          saveCustomers(cloud.customers);
+        } else {
+          await pushConfig({
+            products: productsRef.current,
+            customers: customersRef.current,
+          });
+        }
+        if (!cancelled) setSyncStatus('idle');
+      } catch {
+        if (!cancelled) setSyncStatus('error');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Pull shift whenever date/slot changes.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setSyncStatus('syncing');
+      try {
+        const cloud = await fetchShift(date, slot);
+        if (cancelled) return;
+        if (cloud) {
+          saveShift(cloud);
+          setEntry(cloud);
+          setSavedAt(cloud.updatedAt ?? null);
+        } else {
+          const local = loadShift(date, slot);
+          if (local) {
+            await pushShift(local);
+            setEntry(local);
+            setSavedAt(local.updatedAt);
+          } else {
+            setEntry(emptyEntry(date, slot));
+            setSavedAt(null);
+          }
+        }
+        if (!cancelled) setSyncStatus('idle');
+      } catch {
+        if (cancelled) return;
+        const local = loadShift(date, slot);
+        setEntry(local ?? emptyEntry(date, slot));
+        setSavedAt(local?.updatedAt ?? null);
+        setSyncStatus('error');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [date, slot]);
 
   const recon = useMemo(() => reconciliation(entry, BREADS, customers), [entry, customers]);
@@ -77,6 +184,19 @@ export default function App() {
 
   const ask = (opts: ConfirmOptions, onConfirm: () => void) =>
     setPending({ ...opts, onConfirm });
+
+  const syncConfigToCloud = async (
+    nextProducts: RetailProduct[],
+    nextCustomers: Customer[],
+  ) => {
+    setSyncStatus('syncing');
+    try {
+      await pushConfig({ products: nextProducts, customers: nextCustomers });
+      setSyncStatus('idle');
+    } catch {
+      setSyncStatus('error');
+    }
+  };
 
   const updateProduction = (breadId: BreadId, qty: number) =>
     setEntry((p) => ({ ...p, production: { ...p.production, [breadId]: qty } }));
@@ -99,6 +219,7 @@ export default function App() {
     const next = [...products, { id: newId('p'), name, price }];
     setProducts(next);
     saveProducts(next);
+    void syncConfigToCloud(next, customers);
   };
   const deleteProduct = (productId: string) => {
     const product = products.find((p) => p.id === productId);
@@ -114,6 +235,7 @@ export default function App() {
         const next = products.filter((p) => p.id !== productId);
         setProducts(next);
         saveProducts(next);
+        void syncConfigToCloud(next, customers);
         setEntry((p) => {
           if (!(productId in p.retail)) return p;
           const { [productId]: _removed, ...rest } = p.retail;
@@ -130,6 +252,7 @@ export default function App() {
     ]);
     setCustomers(next);
     saveCustomers(next);
+    void syncConfigToCloud(products, next);
   };
   const deleteCustomer = (customerId: string) => {
     const customer = customers.find((c) => c.id === customerId);
@@ -145,6 +268,7 @@ export default function App() {
         const next = customers.filter((c) => c.id !== customerId);
         setCustomers(next);
         saveCustomers(next);
+        void syncConfigToCloud(products, next);
         setEntry((p) => {
           if (!(customerId in p.delivery)) return p;
           const { [customerId]: _removed, ...rest } = p.delivery;
@@ -159,6 +283,7 @@ export default function App() {
     );
     setCustomers(next);
     saveCustomers(next);
+    void syncConfigToCloud(products, next);
   };
 
   const addAdjustment = (
@@ -177,9 +302,17 @@ export default function App() {
     setEntry((p) => ({ ...p, [field]: p[field].filter((it) => it.id !== id) }));
   };
 
-  const handleSave = () => {
-    saveShift(entry);
-    setSavedAt(Date.now());
+  const handleSave = async () => {
+    const stamped = { ...entry, updatedAt: Date.now() };
+    saveShift(stamped);
+    setSavedAt(stamped.updatedAt);
+    setSyncStatus('syncing');
+    try {
+      await pushShift(stamped);
+      setSyncStatus('idle');
+    } catch {
+      setSyncStatus('error');
+    }
   };
 
   const handleResetShift = () =>
@@ -194,8 +327,25 @@ export default function App() {
         deleteShift(date, slot);
         setEntry(emptyEntry(date, slot));
         setSavedAt(null);
+        setSyncStatus('syncing');
+        removeShift(date, slot)
+          .then(() => setSyncStatus('idle'))
+          .catch(() => setSyncStatus('error'));
       },
     );
+
+  const handleSignOut = () => {
+    ask(
+      {
+        title: 'Đăng xuất',
+        message: 'Đăng xuất khỏi tài khoản đồng bộ?',
+        confirmLabel: 'Đăng xuất',
+      },
+      () => {
+        void supabase.auth.signOut();
+      },
+    );
+  };
 
   return (
     <div className="mx-auto flex min-h-full max-w-2xl flex-col pb-32">
@@ -216,6 +366,14 @@ export default function App() {
               title="Reset ca hiện tại"
             >
               ↺ Reset
+            </button>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="rounded-lg bg-stone-100 px-2 py-1 text-sm font-semibold text-stone-700 active:bg-stone-200"
+              title="Đăng xuất"
+            >
+              ⎋
             </button>
           </div>
         </div>
@@ -319,11 +477,14 @@ export default function App() {
             <div className="text-2xl font-bold tabular-nums text-brand-700">
               {formatVND(cash.expected)}
             </div>
-            {savedAt && (
-              <div className="text-[11px] text-stone-400">
-                Đã lưu lúc {new Date(savedAt).toLocaleTimeString('vi-VN')}
-              </div>
-            )}
+            <div className="text-[11px] text-stone-400">
+              {syncStatus === 'syncing' && '☁️ Đang đồng bộ...'}
+              {syncStatus === 'error' && '⚠️ Lỗi mạng — đã lưu offline'}
+              {syncStatus === 'idle' && savedAt && (
+                <>☁️ Đã lưu lúc {new Date(savedAt).toLocaleTimeString('vi-VN')}</>
+              )}
+              {syncStatus === 'idle' && !savedAt && '☁️ Đã đồng bộ'}
+            </div>
           </div>
           <button
             type="button"
