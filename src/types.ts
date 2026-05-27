@@ -1,28 +1,43 @@
-export type ProductId = string;
-export type ChannelId = string;
+export type BreadId = 'banh-nho' | 'banh-trung' | 'banh-lon';
+export type ShiftSlot = 'sang' | 'chieu';
 
-export interface Product {
-  id: ProductId;
+export interface BreadDef {
+  id: BreadId;
   name: string;
-  unit: string;
+  short: string;
+  priceBanhKhong: number;
+  priceBanhThit: number;
+  priceWholesale: number;
 }
 
-export type ChannelMode = 'per-product' | 'lump-sum';
-
-export interface Channel {
-  id: ChannelId;
+export interface RetailProduct {
+  id: string;
   name: string;
-  emoji: string;
-  mode: ChannelMode;
-  note?: string;
-  productIds: ProductId[];
-  prices: Record<ProductId, number>;
+  price: number;
 }
 
-export interface DailyEntry {
+export interface Customer {
+  id: string;
+  name: string;
+}
+
+export type BreadCount = Partial<Record<BreadId, number>>;
+
+export interface ShiftEntry {
   date: string;
-  quantities: Record<ChannelId, Record<ProductId, number>>;
-  lumpSums: Record<ChannelId, number>;
+  slot: ShiftSlot;
+  production: BreadCount;
+  banhKhong: BreadCount;
+  banhThit: BreadCount;
+  retail: Record<string, number>;
+  delivery: Record<string, BreadCount>;
   note: string;
   updatedAt: number;
+}
+
+export interface BreadReconRow {
+  bread: BreadDef;
+  produced: number;
+  sold: number;
+  diff: number;
 }
