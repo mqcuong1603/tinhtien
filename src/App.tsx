@@ -49,14 +49,17 @@ export default function App() {
     setSavedAt(loaded?.updatedAt ?? null);
   }, [date, slot]);
 
-  const recon = useMemo(() => reconciliation(entry, BREADS), [entry]);
+  const recon = useMemo(() => reconciliation(entry, BREADS, customers), [entry, customers]);
   const banhKhongSub = useMemo(() => breadKhongRevenue(entry, BREADS), [entry]);
   const banhThitSub = useMemo(() => breadThitRevenue(entry, BREADS), [entry]);
   const retailSub = useMemo(() => retailRevenue(entry, products), [entry, products]);
-  const deliverySub = useMemo(() => deliveryRevenue(entry, BREADS), [entry]);
+  const deliverySub = useMemo(
+    () => deliveryRevenue(entry, BREADS, customers),
+    [entry, customers],
+  );
   const total = useMemo(
-    () => totalRevenue(entry, BREADS, products),
-    [entry, products],
+    () => totalRevenue(entry, BREADS, products, customers),
+    [entry, products, customers],
   );
 
   const updateProduction = (breadId: string, qty: number) =>
@@ -85,6 +88,11 @@ export default function App() {
     const next = products.filter((p) => p.id !== productId);
     setProducts(next);
     saveProducts(next);
+    setEntry((p) => {
+      if (!(productId in p.retail)) return p;
+      const { [productId]: _removed, ...rest } = p.retail;
+      return { ...p, retail: rest };
+    });
   };
 
   const addCustomer = (name: string) => {
@@ -96,6 +104,11 @@ export default function App() {
     const next = customers.filter((c) => c.id !== customerId);
     setCustomers(next);
     saveCustomers(next);
+    setEntry((p) => {
+      if (!(customerId in p.delivery)) return p;
+      const { [customerId]: _removed, ...rest } = p.delivery;
+      return { ...p, delivery: rest };
+    });
   };
 
   const handleSave = () => {

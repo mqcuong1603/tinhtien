@@ -1,6 +1,7 @@
 import type {
   BreadCount,
   BreadDef,
+  BreadId,
   BreadReconRow,
   Customer,
   RetailProduct,
@@ -55,9 +56,15 @@ export function retailRevenue(entry: ShiftEntry, products: RetailProduct[]): num
   );
 }
 
-export function deliveryRevenue(entry: ShiftEntry, breads: BreadDef[]): number {
+export function deliveryRevenue(
+  entry: ShiftEntry,
+  breads: BreadDef[],
+  customers: Customer[],
+): number {
   let total = 0;
-  for (const counts of Object.values(entry.delivery)) {
+  for (const c of customers) {
+    const counts = entry.delivery[c.id];
+    if (!counts) continue;
     for (const b of breads) {
       total += (counts[b.id] ?? 0) * b.priceWholesale;
     }
@@ -69,21 +76,31 @@ export function customerSubtotal(counts: BreadCount, breads: BreadDef[]): number
   return breads.reduce((sum, b) => sum + (counts[b.id] ?? 0) * b.priceWholesale, 0);
 }
 
-export function deliveredOf(entry: ShiftEntry, breadId: string): number {
+export function deliveredOf(
+  entry: ShiftEntry,
+  breadId: BreadId,
+  customers: Customer[],
+): number {
   let total = 0;
-  for (const counts of Object.values(entry.delivery)) {
-    total += counts[breadId as keyof BreadCount] ?? 0;
+  for (const c of customers) {
+    const counts = entry.delivery[c.id];
+    if (!counts) continue;
+    total += counts[breadId] ?? 0;
   }
   return total;
 }
 
-export function reconciliation(entry: ShiftEntry, breads: BreadDef[]): BreadReconRow[] {
+export function reconciliation(
+  entry: ShiftEntry,
+  breads: BreadDef[],
+  customers: Customer[],
+): BreadReconRow[] {
   return breads.map((bread) => {
     const produced = entry.production[bread.id] ?? 0;
     const sold =
       (entry.banhKhong[bread.id] ?? 0) +
       (entry.banhThit[bread.id] ?? 0) +
-      deliveredOf(entry, bread.id);
+      deliveredOf(entry, bread.id, customers);
     return { bread, produced, sold, diff: produced - sold };
   });
 }
@@ -92,12 +109,13 @@ export function totalRevenue(
   entry: ShiftEntry,
   breads: BreadDef[],
   products: RetailProduct[],
+  customers: Customer[],
 ): number {
   return (
     breadKhongRevenue(entry, breads) +
     breadThitRevenue(entry, breads) +
     retailRevenue(entry, products) +
-    deliveryRevenue(entry, breads)
+    deliveryRevenue(entry, breads, customers)
   );
 }
 
