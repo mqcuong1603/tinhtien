@@ -350,15 +350,9 @@ function MainApp() {
   return (
     <div className="mx-auto flex min-h-full max-w-2xl flex-col pb-32">
       <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 px-4 py-3 backdrop-blur">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2">
           <h1 className="text-lg font-bold text-stone-900">🥖 Tính tiền lò bánh mì</h1>
           <div className="flex items-center gap-2">
-            <ShiftPicker
-              date={date}
-              slot={slot}
-              onDateChange={setDate}
-              onSlotChange={setSlot}
-            />
             <button
               type="button"
               onClick={handleResetShift}
@@ -376,6 +370,14 @@ function MainApp() {
               ⎋
             </button>
           </div>
+        </div>
+        <div className="mt-2">
+          <ShiftPicker
+            date={date}
+            slot={slot}
+            onDateChange={setDate}
+            onSlotChange={setSlot}
+          />
         </div>
       </header>
 

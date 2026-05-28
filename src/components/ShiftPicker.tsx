@@ -1,5 +1,5 @@
 import type { ShiftSlot } from '../types';
-import { shiftLabel } from '../lib/pricing';
+import { SHIFT_SLOTS, shiftLabel } from '../lib/pricing';
 
 interface Props {
   date: string;
@@ -10,7 +10,7 @@ interface Props {
 
 export function ShiftPicker({ date, slot, onDateChange, onSlotChange }: Props) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <input
         type="date"
         value={date}
@@ -18,12 +18,12 @@ export function ShiftPicker({ date, slot, onDateChange, onSlotChange }: Props) {
         className="rounded-lg border border-stone-300 bg-white px-2 py-1 text-sm font-medium focus:border-brand-500 focus:outline-none"
       />
       <div className="inline-flex overflow-hidden rounded-lg border border-stone-300">
-        {(['sang', 'chieu'] as ShiftSlot[]).map((s) => (
+        {SHIFT_SLOTS.map((s) => (
           <button
             key={s}
             type="button"
             onClick={() => onSlotChange(s)}
-            className={`px-3 py-1 text-sm font-semibold ${
+            className={`px-2.5 py-1 text-sm font-semibold ${
               slot === s
                 ? 'bg-brand-500 text-white'
                 : 'bg-white text-stone-700 active:bg-stone-100'

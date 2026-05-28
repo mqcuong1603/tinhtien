@@ -1,5 +1,5 @@
 export type BreadId = 'banh-nho' | 'banh-trung' | 'banh-lon';
-export type ShiftSlot = 'sang' | 'chieu';
+export type ShiftSlot = 'sang' | 'trua' | 'chieu' | 'toi';
 
 export interface BreadDef {
   id: BreadId;

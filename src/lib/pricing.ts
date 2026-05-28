@@ -21,8 +21,14 @@ export function todayISO(): string {
   return new Date(d.getTime() - tz).toISOString().slice(0, 10);
 }
 
+export const SHIFT_SLOTS: ShiftSlot[] = ['sang', 'trua', 'chieu', 'toi'];
+
 export function currentSlot(): ShiftSlot {
-  return new Date().getHours() < 13 ? 'sang' : 'chieu';
+  const h = new Date().getHours();
+  if (h < 11) return 'sang';
+  if (h < 14) return 'trua';
+  if (h < 18) return 'chieu';
+  return 'toi';
 }
 
 export function shiftKey(date: string, slot: ShiftSlot): string {
@@ -30,7 +36,16 @@ export function shiftKey(date: string, slot: ShiftSlot): string {
 }
 
 export function shiftLabel(slot: ShiftSlot): string {
-  return slot === 'sang' ? 'Sáng' : 'Chiều';
+  switch (slot) {
+    case 'sang':
+      return 'Sáng';
+    case 'trua':
+      return 'Trưa';
+    case 'chieu':
+      return 'Chiều';
+    case 'toi':
+      return 'Tối';
+  }
 }
 
 export function sumBreadCount(c: BreadCount): number {
